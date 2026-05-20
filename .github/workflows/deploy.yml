@@ -25,7 +25,7 @@ jobs:
 
       - name: Build imagen Ventas
         run: |
-          docker build -t ${{ secrets.ECR_REPO_URL_VENTAS }}:latest ./back-Ventas_SpringBoot
+          docker build -t ${{ secrets.ECR_REPO_URL_VENTAS }}:latest ./back-Ventas_SpringBoot/Springboot-API-REST
 
       - name: Push imagen Ventas a ECR
         run: |
@@ -33,7 +33,7 @@ jobs:
 
       - name: Build imagen Despachos
         run: |
-          docker build -t ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest ./back-Despachos_SpringBoot
+          docker build -t ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
 
       - name: Push imagen Despachos a ECR
         run: |
