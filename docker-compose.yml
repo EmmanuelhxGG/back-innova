@@ -6,8 +6,7 @@ services:
     container_name: mysql-db
     environment:
       MYSQL_ROOT_PASSWORD: root
-    ports:
-      - "3306:3306"
+    # ❌ ELIMINADO: ports - Base de datos privada, sin acceso externo
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -15,14 +14,15 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
       retries: 10
+    networks:
+      - backend-network
 
   ventas-api:
     build:
       context: ./back-Ventas_SpringBoot/Springboot-API-REST
       dockerfile: Dockerfile
     container_name: ventas-api
-    ports:
-      - "8080:8080"
+    # ❌ ELIMINADO: ports - Solo accesible desde frontend via Docker network
     environment:
       - DB_ENDPOINT=mysql-db
       - DB_PORT=3306
@@ -32,14 +32,15 @@ services:
     depends_on:
       mysql-db:
         condition: service_healthy
+    networks:
+      - backend-network
 
   despachos-api:
     build:
       context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
       dockerfile: Dockerfile
     container_name: despachos-api
-    ports:
-      - "8081:8081"
+    # ❌ ELIMINADO: ports - Solo accesible desde frontend via Docker network
     environment:
       - DB_ENDPOINT=mysql-db
       - DB_PORT=3306
@@ -49,6 +50,12 @@ services:
     depends_on:
       mysql-db:
         condition: service_healthy
+    networks:
+      - backend-network
 
 volumes:
   mysql_data:
+
+networks:
+  backend-network:
+    driver: bridge
