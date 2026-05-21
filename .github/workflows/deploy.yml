@@ -23,31 +23,33 @@ jobs:
       - name: Login en Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build imagen Ventas
+      - name: Build & Push APIs
         run: |
-          docker build -t ${{ secrets.ECR_REPO_URL_VENTAS }}:latest ./back-Ventas_SpringBoot/Springboot-API-REST
-
-      - name: Push imagen Ventas a ECR
-        run: |
-          docker push ${{ secrets.ECR_REPO_URL_VENTAS }}:latest
-
-      - name: Build imagen Despachos
-        run: |
-          docker build -t ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
-
-      - name: Push imagen Despachos a ECR
-        run: |
-          docker push ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest
+          # Extraemos la base de la URL (quitando el nombre del repo si estuviera ahí)
+          BASE_URL=$(echo ${{ secrets.ECR_REPO_URL_BACKEND }} | sed 's/\/innovatech-backend-ventas//')
+          
+          docker build -t $BASE_URL/innovatech-backend-ventas:latest ./back-Ventas_SpringBoot/Springboot-API-REST
+          docker build -t $BASE_URL/innovatech-backend-despachos:latest ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+          
+          docker push $BASE_URL/innovatech-backend-ventas:latest
+          docker push $BASE_URL/innovatech-backend-despachos:latest
 
       - name: Deploy en EC2 Backend via SSM
         run: |
+          # Obtener la IP privada de la DB dinámicamente usando el ID de la instancia
+          DB_IP=$(aws ec2 describe-instances --instance-ids ${{ secrets.EC2_DB_INSTANCE_ID }} --query 'Reservations[*].Instances[*].PrivateIpAddress' --output text --region ${{ secrets.AWS_REGION }})
+          BASE_URL=$(echo ${{ secrets.ECR_REPO_URL_BACKEND }} | sed 's/\/innovatech-backend-ventas//')
+
           aws ssm send-command \
             --instance-ids ${{ secrets.EC2_BACKEND_INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --region ${{ secrets.AWS_REGION }} \
             --parameters commands="[
-              'aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}',
-              'docker pull ${{ secrets.ECR_REPO_URL_VENTAS }}:latest',
-              'docker pull ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest',
-              'cd /home/ec2-user/backend && docker compose up -d --remove-orphans'
+              'aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}',
+              'docker pull $BASE_URL/innovatech-backend-ventas:latest',
+              'docker pull $BASE_URL/innovatech-backend-despachos:latest',
+              'docker stop ventas-api despachos-api || true',
+              'docker rm ventas-api despachos-api || true',
+              'docker run -d --name ventas-api -p 8080:8080 -e DB_ENDPOINT=$DB_IP -e DB_NAME=ventas_db -e DB_USERNAME=root -e DB_PASSWORD=admin123 $BASE_URL/innovatech-backend-ventas:latest',
+              'docker run -d --name despachos-api -p 8081:8081 -e DB_ENDPOINT=$DB_IP -e DB_NAME=despachos_db -e DB_USERNAME=root -e DB_PASSWORD=admin123 $BASE_URL/innovatech-backend-despachos:latest'
             ]"
