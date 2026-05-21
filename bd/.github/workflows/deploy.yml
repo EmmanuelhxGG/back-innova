@@ -1,0 +1,106 @@
+name: CI/CD Backend Innovatech
+
+on:
+  push:
+    branches: [ "deploy" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v3
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login en Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build imagen Ventas
+        run: |
+          docker build -t ${{ secrets.ECR_REPO_URL_VENTAS }}:latest ./back-Ventas_SpringBoot/Springboot-API-REST
+
+      - name: Push imagen Ventas a ECR
+        run: |
+          docker push ${{ secrets.ECR_REPO_URL_VENTAS }}:latest
+
+      - name: Build imagen Despachos
+        run: |
+          docker build -t ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+
+      - name: Push imagen Despachos a ECR
+        run: |
+          docker push ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest
+
+      - name: Deploy en EC2 Backend via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_BACKEND_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --region "${{ secrets.AWS_REGION }}" \
+            --parameters '{"commands": [
+              "mkdir -p /home/ec2-user/backend",
+              "cd /home/ec2-user/backend",
+              "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}",
+              "echo \"version:  \x273.8\x27\" > docker-compose.yml",
+              "echo \"services:\" >> docker-compose.yml",
+              "echo \"  mysql-db:\" >> docker-compose.yml",
+              "echo \"    image: mysql:8.0\" >> docker-compose.yml",
+              "echo \"    container_name: mysql-db\" >> docker-compose.yml",
+              "echo \"    environment:\" >> docker-compose.yml",
+              "echo \"      MYSQL_ROOT_PASSWORD: root\" >> docker-compose.yml",
+              "echo \"    volumes:\" >> docker-compose.yml",
+              "echo \"      - mysql_data:/var/lib/mysql\" >> docker-compose.yml",
+              "echo \"    healthcheck:\" >> docker-compose.yml",
+              "echo \"      test: [\\\"CMD\\\", \\\"mysqladmin\\\", \\\"ping\\\", \\\"-h\\\", \\\"localhost\\\"]\" >> docker-compose.yml",
+              "echo \"      timeout: 20s\" >> docker-compose.yml",
+              "echo \"      retries: 10\" >> docker-compose.yml",
+              "echo \"    networks:\" >> docker-compose.yml",
+              "echo \"      - backend-network\" >> docker-compose.yml",
+              "echo \"  ventas-api:\" >> docker-compose.yml",
+              "echo \"    image: ${{ secrets.ECR_REPO_URL_VENTAS }}:latest\" >> docker-compose.yml",
+              "echo \"    container_name: ventas-api\" >> docker-compose.yml",
+              "echo \"    ports:\" >> docker-compose.yml",
+              "echo \"      - \\\"8081:8081\\\"\" >> docker-compose.yml",
+              "echo \"    environment:\" >> docker-compose.yml",
+              "echo \"      - DB_ENDPOINT=mysql-db\" >> docker-compose.yml",
+              "echo \"      - DB_PORT=3306\" >> docker-compose.yml",
+              "echo \"      - DB_NAME=ventas_db\" >> docker-compose.yml",
+              "echo \"      - DB_USERNAME=root\" >> docker-compose.yml",
+              "echo \"      - DB_PASSWORD=root\" >> docker-compose.yml",
+              "echo \"    depends_on:\" >> docker-compose.yml",
+              "echo \"      mysql-db:\" >> docker-compose.yml",
+              "echo \"        condition: service_healthy\" >> docker-compose.yml",
+              "echo \"    networks:\" >> docker-compose.yml",
+              "echo \"      - backend-network\" >> docker-compose.yml",
+              "echo \"  despachos-api:\" >> docker-compose.yml",
+              "echo \"    image: ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest\" >> docker-compose.yml",
+              "echo \"    container_name: despachos-api\" >> docker-compose.yml",
+              "echo \"    ports:\" >> docker-compose.yml",
+              "echo \"      - \\\"8082:8082\\\"\" >> docker-compose.yml",
+              "echo \"    environment:\" >> docker-compose.yml",
+              "echo \"      - DB_ENDPOINT=mysql-db\" >> docker-compose.yml",
+              "echo \"      - DB_PORT=3306\" >> docker-compose.yml",
+              "echo \"      - DB_NAME=despachos_db\" >> docker-compose.yml",
+              "echo \"      - DB_USERNAME=root\" >> docker-compose.yml",
+              "echo \"      - DB_PASSWORD=root\" >> docker-compose.yml",
+              "echo \"    depends_on:\" >> docker-compose.yml",
+              "echo \"      mysql-db:\" >> docker-compose.yml",
+              "echo \"        condition: service_healthy\" >> docker-compose.yml",
+              "echo \"    networks:\" >> docker-compose.yml",
+              "echo \"      - backend-network\" >> docker-compose.yml",
+              "echo \"volumes:\" >> docker-compose.yml",
+              "echo \"  mysql_data:\" >> docker-compose.yml",
+              "echo \"networks:\" >> docker-compose.yml",
+              "echo \"  backend-network:\" >> docker-compose.yml",
+              "echo \"    driver: bridge\" >> docker-compose.yml",
+              "docker compose pull",
+              "docker compose up -d --remove-orphans"
+            ]}'

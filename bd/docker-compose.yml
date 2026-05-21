@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  mysql-db:
+    image: mysql:8.0
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    # Correcto: La base de datos sigue siendo 100% privada dentro de la EC2 del Backend
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - backend-network
+
+  ventas-api:
+    # Cambiado: Ahora consume la imagen compilada y subida a tu Amazon ECR
+    image: 563751071932.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend-ventas:latest
+    container_name: ventas-api
+    # REINTEGRADO: Se exponen los puertos para que el Frontend (en la otra EC2) pueda consultar los endpoints
+    ports:
+      - "8081:8081" 
+    environment:
+      - DB_ENDPOINT=mysql-db
+      - DB_PORT=3306
+      - DB_NAME=ventas_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    networks:
+      - backend-network
+
+  despachos-api:
+    # Cambiado: Ahora consume la imagen compilada y subida a tu Amazon ECR
+    image: 563751071932.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend-despachos:latest
+    container_name: despachos-api
+    # REINTEGRADO: Se exponen los puertos para que el Frontend (en la otra EC2) pueda consultar los endpoints
+    ports:
+      - "8082:8082"
+    environment:
+      - DB_ENDPOINT=mysql-db
+      - DB_PORT=3306
+      - DB_NAME=despachos_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    networks:
+      - backend-network
+
+volumes:
+  mysql_data: # IE3: Volumen nombrado para persistencia técnica de datos
+
+networks:
+  backend-network:
+    driver: bridge
