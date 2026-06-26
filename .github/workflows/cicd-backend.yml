@@ -1,0 +1,66 @@
+# =====================================================================
+#  CI/CD Backend (db + ventas + despachos) -> ECR -> EKS
+#  Va en el repo: back-innova   ->   .github/workflows/cicd-backend.yml
+# =====================================================================
+name: CICD Backend EKS
+
+on:
+  push:
+    branches: [ "deploy" ]      # <-- ajusta a tu rama (main o deploy)
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: innovatech-eks  # <-- REEMPLAZA por el nombre real de tu cluster
+  ACCOUNT_ID: "497738258580"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login a Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ---- Build & Push (ajusta los paths si tu tree es distinto) ----
+      - name: Build & Push - Base de datos
+        env:
+          REG: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t $REG/db-repo:latest ./bd
+          docker push $REG/db-repo:latest
+
+      - name: Build & Push - Ventas
+        env:
+          REG: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t $REG/back-ventas-repo:latest ./back-Ventas_SpringBoot/Springboot-API-REST
+          docker push $REG/back-ventas-repo:latest
+
+      - name: Build & Push - Despachos
+        env:
+          REG: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t $REG/back-despacho-repo:latest ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+          docker push $REG/back-despacho-repo:latest
+
+      # ---- Deploy en EKS ----
+      - name: Conectar a EKS
+        run: aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+
+      - name: Redeploy (jala las imagenes nuevas)
+        run: |
+          kubectl rollout restart deployment/innovatech-db-deployment
+          kubectl rollout restart deployment/innovatech-ventas-deployment
+          kubectl rollout restart deployment/innovatech-despachos-deployment
+          kubectl rollout status deployment/innovatech-ventas-deployment --timeout=120s
